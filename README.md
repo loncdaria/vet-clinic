@@ -57,5 +57,12 @@ The project is built with Python. The technologies and libraries used include:
    python app.py
    ```
 
+### Login:
+After running the application, users can log in using the default account:
+
+- Username: admin
+- Password: admin
+
+
 ## Author
 Project developed by [loncdaria](https://github.com/loncdaria).
