@@ -8,20 +8,22 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, BooleanField
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_migrate import Migrate
-
-
+from urllib.parse import urlparse, urljoin
 
 app = Flask(__name__)
-db = SQLAlchemy()
-login_manager = LoginManager()
-login_manager.init_app(app)#nie wiem czy to potrzebne;wywala aplikacje
-
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///project.db"# tu nie wiem czy utworzyć plik config.cfg
 app.config['SECRET_KEY'] = 'Kiki'
 
+
+db = SQLAlchemy()
+login_manager = LoginManager()
+login_manager.init_app(app)#nie wiem czy to potrzebne;wywala aplikacje
+login_manager.login_view = 'login'
+login_manager.login_message = 'Please log in to access this page.'
+migrate = Migrate(app, db)
+
 db.init_app(app)
 
-migrate = Migrate(app, db)
 
 
 class User(db.Model, UserMixin):
@@ -33,7 +35,7 @@ class User(db.Model, UserMixin):
     last_name = db.Column(db.String(55))
 
     def __repr__(self):
-        return ('User: {},{}'.format(self.name))
+        return f'User {self.name}'
     
     def get_hash_password(self):
         """Hash a password for storing"""
@@ -54,6 +56,12 @@ class User(db.Model, UserMixin):
 @login_manager.user_loader
 def load_user(id):
     return User.query.filter(User.id == id).first()
+
+def is_safe_url(target):
+    ref_url = urlparse(request.host_url)
+    test_url = urlparse(urljoin(request.host_url, target))
+    return test_url.scheme in ('http', 'https') and \
+           ref_url.netloc == test_url.netloc
 
 class LoginForm(FlaskForm):
     name=StringField('User name')
@@ -99,7 +107,7 @@ def init():
     
     admin=User.query.filter(User.name=='admin').first()
     if admin== None:
-        admin=User(id=1,name='admin',password=User.get_hash_password('admin'), first_name='admin', last_name='admin')
+        admin = User(id=1, name='admin', password=User(password='admin').get_hash_password(), first_name='admin', last_name='admin')
         db.session.add(admin)
         db.session.commit()
     return 'OK'
@@ -110,17 +118,21 @@ def index():
 
 @app.route("/login", methods=['GET', 'POST'])
 def login():
-    form=LoginForm()
+    form = LoginForm()
 
     if form.validate_on_submit():
-         user=User.query.filter(User.name==form.name.data).first()
-         if user != None and user.verify_password(user.password, form.password.data):
+        user = User.query.filter(User.name == form.name.data).first()
+        if user is not None and user.verify_password(user.password, form.password.data):
             login_user(user)
-            return 'ok'
+            next = request.args.get('next')
+            if next and is_safe_url(next):
+                return redirect(next)
+            else:
+                return '<h1>Logged in successfully</h1>'
     return render_template('login.html', form=form)
 
+
 @app.route("/logout")
-@login_required
 def logout():
     logout_user()
     return "wylogowano"
@@ -128,12 +140,14 @@ def logout():
 
 
 @app.route("/all/")
+@login_required
 def owners():
     owners = db.session.execute(db.select(Owner).order_by(Owner.name)).scalars()
     return render_template("Owners.html", owners=owners)
 
 
 @app.route("/vets/")
+@login_required
 def vets():
     vets = db.session.execute(db.select(Vet).order_by(Vet.name)).scalars()
     return render_template("Vets.html", vets=vets)
