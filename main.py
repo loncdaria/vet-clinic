@@ -1,57 +1,38 @@
 from datetime import date, timedelta
 from flask import Flask, render_template, request, redirect, url_for
-from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.sql import func
-import hashlib
-import binascii
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, BooleanField
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_migrate import Migrate
 from urllib.parse import urlparse, urljoin
+from flask_jwt_extended import JWTManager
+from api import api
+
+from models import db, User, Owner, Pet, Vet, Appointment
+
+
+
 
 app = Flask(__name__)
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///project.db"# tu nie wiem czy utworzyć plik config.cfg
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///project.db"# tu nie wiem czy utworzyć plik config.cfg czy w osobnym pliku
 app.config['SECRET_KEY'] = 'Kiki'
+app.config['JWT_SECRET_KEY'] = 'Kiki'  
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1) 
 
 
-db = SQLAlchemy()
+
+
 login_manager = LoginManager()
-login_manager.init_app(app)#nie wiem czy to potrzebne;wywala aplikacje
+login_manager.init_app(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'Please log in to access this page.'
 migrate = Migrate(app, db)
+jwt = JWTManager(app)
+app.register_blueprint(api)
 
 db.init_app(app)
 
-
-
-class User(db.Model, UserMixin):
-    __tablename__ = 'user'
-    id = db.Column(db.Integer, primary_key=True)
-    name= db.Column(db.String(255), unique=True)
-    password = db.Column(db.String(100))
-    first_name = db.Column(db.String(55))
-    last_name = db.Column(db.String(55))
-
-    def __repr__(self):
-        return f'User {self.name}'
-    
-    def get_hash_password(self):
-        """Hash a password for storing"""
-        os_urandom_static=b'ID_\x03\x1e\xdd}Ae\x15\x93\xc5\xfe\\\x00o\xa5u+7\xfd\xdf\xf7\xbcN\x84:\xa6\xaf\x0c\x95\x0fK\x94\x06'
-        salt = hashlib.sha256(os_urandom_static).hexdigest().encode('ascii')
-        pwdhash = hashlib.pbkdf2_hmac('sha512', self.password.encode('utf-8'), salt, 100000)
-        pwdhash = binascii.hexlify(pwdhash)
-        return (salt + pwdhash).decode('ascii')
-    
-    def verify_password(self, stored_password, provided_password):
-        """Verify a stored password against one provided by user."""
-        salt = stored_password[:64]
-        stored_password = stored_password[64:]
-        pwdhash = hashlib.pbkdf2_hmac('sha512', provided_password.encode('utf-8'), salt.encode('ascii'), 100000)
-        pwdhash = binascii.hexlify(pwdhash).decode('ascii')
-        return pwdhash == stored_password
 
 @login_manager.user_loader
 def load_user(id):
@@ -67,39 +48,6 @@ class LoginForm(FlaskForm):
     name=StringField('User name')
     password=PasswordField('Password')
     remember=BooleanField('Remember me')
-
-class Appointment(db.Model):
-    __tablename__ = 'appointment'
-    id = db.Column(db.Integer, primary_key=True)
-    ownerId = db.Column(db.Integer, nullable=False)
-    vetId = db.Column(db.Integer, nullable=False)
-    date = db.Column(db.Integer, nullable=False)
-    time = db.Column(db.Integer, nullable=False)
-
-
-class Owner(db.Model):
-    __tablename__ = 'owner'
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), nullable=False)
-    lastName = db.Column(db.String(255), nullable=False)
-    mail = db.Column(db.String(255), nullable=False)
-    birthDate = db.Column(db.Integer(), nullable=False)
-
-class Pet(db.Model):
-    __tablename__ = 'pet'
-    id = db.Column(db.Integer, primary_key=True)
-    ownerId = db.Column(db.Integer, nullable=False)
-    name = db.Column(db.String(255), nullable=False)
-    species = db.Column(db.String(255), nullable=False)
-    weight = db.Column(db.Integer(), nullable=False)
-
-class Vet(db.Model):
-    __tablename__ = 'vet'
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), nullable=False)
-    lastName = db.Column(db.String(255), nullable=False)
-    mail = db.Column(db.String(255), nullable=False)
-    birthDate = db.Column(db.Integer(), nullable=False)
 
 @app.route('/init')
 def init():
@@ -123,7 +71,7 @@ def login():
     if form.validate_on_submit():
         user = User.query.filter(User.name == form.name.data).first()
         if user is not None and user.verify_password(user.password, form.password.data):
-            login_user(user)
+            login_user(user, remember=form.remember.data)
             next = request.args.get('next')
             if next and is_safe_url(next):
                 return redirect(next)
@@ -135,7 +83,7 @@ def login():
 @app.route("/logout")
 def logout():
     logout_user()
-    return "wylogowano"
+    return "<h1>Logged out successfully</h1>"
     
 
 
@@ -289,6 +237,7 @@ def add_appointment():
         db.session.commit()
         return redirect('/all')
     return redirect('/all')
+
 
 
 if __name__ == "__main__":
